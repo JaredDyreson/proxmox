@@ -1,0 +1,120 @@
+---
+- name: Configure nightly backups of Pihole
+  hosts: pihole
+  become: true
+  gather_facts: true
+
+  vars:
+    nas:
+      ip: "192.168.1.122"
+      remote_path: "/mnt/storage/storage_share/pihole-backups"
+      host_path: "/mnt/nas"
+    app_name: kuma-backup-checker
+    app_dir: /opt/kuma-backup-checker
+    app_port: 4000
+    workspace_dir: "{{ playbook_dir }}/../../services"
+    target_triple: aarch64-unknown-linux-gnu
+    binary_src: "{{ workspace_dir }}/target/{{ target_triple }}/release/{{ app_name }}"
+    systemd_unit_src: "{{ playbook_dir }}/../kuma-backup-checker.service"
+    systemd_override_dir: "/etc/systemd/system/kuma-backup-checker.service.d"
+
+  tasks:
+    - name: Install NFS mounting software
+      ansible.builtin.apt:
+        name: nfs-common
+        state: present
+        update_cache: true
+
+    - name: Add NFS share to fstab
+      ansible.posix.mount:
+        src: "{{ nas.ip }}:{{ nas.remote_path }}"
+        path: "{{ nas.host_path }}"
+        fstype: nfs
+        opts: "rw,soft,timeo=300,_netdev"
+        state: mounted
+
+    - name: Schedule nightly backup cron
+      ansible.builtin.cron:
+        name: pihole-teleporter-backup
+        user: root
+        minute: "0"
+        hour: "2"
+        job: "cd {{ nas.host_path }} && /usr/bin/pihole-FTL --teleporter"
+        cron_file: pihole-backup
+
+    - name: Build release binary
+      ansible.builtin.command:
+        cmd: cargo zigbuild --release --target {{ target_triple }}.2.41 -p {{ app_name }}
+        chdir: "{{ workspace_dir }}"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      register: build_result
+      changed_when: "'Compiling kuma-backup-checker' in build_result.stderr"
+
+    - name: Create application directory
+      ansible.builtin.file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Copy release binary
+      ansible.builtin.copy:
+        src: "{{ binary_src }}"
+        dest: "{{ app_dir }}/{{ app_name }}"
+        owner: root
+        group: root
+        mode: "0755"
+      notify: Restart kuma-backup-checker
+
+    - name: Install systemd unit
+      ansible.builtin.copy:
+        src: "{{ systemd_unit_src }}"
+        dest: /etc/systemd/system/kuma-backup-checker.service
+        owner: root
+        group: root
+        mode: "0644"
+      notify:
+        - Reload systemd
+        - Restart kuma-backup-checker
+
+    - name: Create systemd override directory
+      ansible.builtin.file:
+        path: "{{ systemd_override_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install systemd port override
+      ansible.builtin.copy:
+        dest: "{{ systemd_override_dir }}/port.conf"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Service]
+          ExecStart=
+          ExecStart={{ app_dir }}/{{ app_name }} --port {{ app_port }}
+      notify:
+        - Reload systemd
+        - Restart kuma-backup-checker
+
+    - name: Enable and start kuma-backup-checker
+      ansible.builtin.systemd:
+        name: kuma-backup-checker
+        enabled: true
+        state: started
+        daemon_reload: true
+
+  handlers:
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Restart kuma-backup-checker
+      ansible.builtin.systemd:
+        name: kuma-backup-checker
+        state: restarted

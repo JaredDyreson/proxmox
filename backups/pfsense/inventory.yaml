@@ -1,0 +1,8 @@
+all:
+  children:
+    router:
+      hosts:
+        192.168.1.110:
+          ansible_user: jared
+  vars:
+    ansible_python_interpreter: /usr/bin/python3

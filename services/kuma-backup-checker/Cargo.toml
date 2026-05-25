@@ -1,0 +1,15 @@
+[package]
+name = "kuma-backup-checker"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow.workspace = true
+axum = { workspace = true }
+chrono = { workspace = true }
+clap = { version = "4.6.1", features = ["derive"] }
+logtail = { path = "../logtail" }
+log.workspace = true
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }

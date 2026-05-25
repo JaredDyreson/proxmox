@@ -1,0 +1,131 @@
+---
+- name: Deploy kuma-relay behind Caddy
+  hosts: webhooks
+  become: true
+  gather_facts: true
+
+  vars:
+    app_name: kuma-relay
+    app_user: kuma-relay
+    app_dir: /opt/kuma-relay
+    workspace_dir: "{{ playbook_dir }}/../../.."
+    binary_src: "{{ workspace_dir }}/target/release/kuma-relay"
+    systemd_unit_src: "{{ playbook_dir }}/../../deploy/kuma-relay.service"
+    caddyfile_src: "{{ playbook_dir }}/../../deploy/Caddyfile"
+
+  tasks:
+    - name: Build release binary
+      ansible.builtin.command:
+        cmd: cargo build --release -p kuma-relay
+        chdir: "{{ workspace_dir }}"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      register: build_result
+      changed_when: "'Compiling kuma-relay' in build_result.stderr"
+
+    - name: Install base packages
+      ansible.builtin.apt:
+        name:
+          - debian-keyring
+          - debian-archive-keyring
+          - apt-transport-https
+          - curl
+          - gnupg
+          - ufw
+        state: present
+        update_cache: true
+
+    - name: Add Caddy GPG key
+      ansible.builtin.get_url:
+        url: https://dl.cloudsmith.io/public/caddy/stable/gpg.key
+        dest: /usr/share/keyrings/caddy-stable-archive-keyring.asc
+        mode: "0644"
+
+    - name: Add Caddy apt repository
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/usr/share/keyrings/caddy-stable-archive-keyring.asc] https://dl.cloudsmith.io/public/caddy/stable/deb/debian any-version main"
+        filename: caddy-stable
+        state: present
+        update_cache: true
+
+    - name: Install Caddy
+      ansible.builtin.apt:
+        name: caddy
+        state: present
+
+    - name: Create application system user
+      ansible.builtin.user:
+        name: "{{ app_user }}"
+        system: true
+        shell: /usr/sbin/nologin
+        home: "{{ app_dir }}"
+        create_home: false
+
+    - name: Create application directory
+      ansible.builtin.file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: "0755"
+
+    - name: Copy release binary
+      ansible.builtin.copy:
+        src: "{{ binary_src }}"
+        dest: "{{ app_dir }}/{{ app_name }}"
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: "0755"
+      notify: Restart kuma-relay
+
+    - name: Install systemd unit
+      ansible.builtin.copy:
+        src: "{{ systemd_unit_src }}"
+        dest: /etc/systemd/system/kuma-relay.service
+        owner: root
+        group: root
+        mode: "0644"
+      notify:
+        - Reload systemd
+        - Restart kuma-relay
+
+    - name: Enable and start kuma-relay
+      ansible.builtin.systemd:
+        name: kuma-relay
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Install Caddyfile
+      ansible.builtin.copy:
+        src: "{{ caddyfile_src }}"
+        dest: /etc/caddy/Caddyfile
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Reload Caddy
+
+    - name: Allow HTTP and HTTPS through ufw
+      community.general.ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      loop:
+        - "80"
+        - "443"
+
+  handlers:
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Restart kuma-relay
+      ansible.builtin.systemd:
+        name: kuma-relay
+        state: restarted
+
+    - name: Reload Caddy
+      ansible.builtin.systemd:
+        name: caddy
+        state: reloaded

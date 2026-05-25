@@ -1,0 +1,24 @@
+{
+  "meta": {
+    "unsubscribe": "https://www.githubstatus.com/...",
+    "documentation": "https://help.statuspage.io/..."
+  },
+  "page": {
+    "id": "kctbh9vrtdwd",
+    "status_indicator": "none",
+    "status_description": "All Systems Operational"
+  },
+  "component_update": {
+    "created_at": "2026-05-22T12:00:00.000Z",
+    "new_status": "operational",
+    "old_status": "major_outage",
+    "id": "k7730d5lwcq3",
+    "component_id": "rhc4r20gd3x5"
+  },
+  "component": {
+    "created_at": "2020-01-01T00:00:00.000Z",
+    "id": "rhc4r20gd3x5",
+    "name": "API Requests",
+    "status": "operational"
+  }
+}
