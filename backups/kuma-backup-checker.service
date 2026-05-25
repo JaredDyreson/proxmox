@@ -1,5 +1,5 @@
 [Unit]
-Description=kuma-backup-checker Proxmox vzdump status server
+Description=Backup checking API service
 After=network-online.target pve-cluster.service
 Wants=network-online.target
 
